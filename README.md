@@ -13,7 +13,7 @@ This repository provides the V4L2 subdevice driver for the OV2735 image sensor, 
 - **Interface**: MIPI CSI-2  
 - **Bus**: I2C  
 - **Driver Type**: V4L2 sensor subdevice  
-- **Format**: RAW Bayer (example: RAW10 or RAW12)
+- **Format**: RAW Bayer (example: RAW10)
 
 ## Features
 
