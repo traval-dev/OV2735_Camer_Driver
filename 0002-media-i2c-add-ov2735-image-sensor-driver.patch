@@ -1,7 +1,7 @@
-From 13c79adb2d743f4939aa57d86427640ddcf38deb Mon Sep 17 00:00:00 2001
+From 60b3b6d0645c67939ec404d29a8dfad6564d6cf2 Mon Sep 17 00:00:00 2001
 From: Tarang Raval <tarang.raval@siliconsignals.io>
-Date: Tue, 8 Jul 2025 15:10:52 +0530
-Subject: [PATCH 2/2] media: i2c: add ov2735 image sensor driver
+Date: Thu, 10 Jul 2025 17:17:16 +0530
+Subject: [PATCH v3 2/2] media: i2c: add ov2735 image sensor driver
 
 Add a v4l2 subdevice driver for the Omnivision OV2735 sensor.
 
@@ -18,8 +18,8 @@ Signed-off-by: Tarang Raval <tarang.raval@siliconsignals.io>
 ---
  drivers/media/i2c/Kconfig  |  10 +
  drivers/media/i2c/Makefile |   1 +
- drivers/media/i2c/ov2735.c | 907 +++++++++++++++++++++++++++++++++++++
- 4 files changed, 927 insertions(+)
+ drivers/media/i2c/ov2735.c | 961 +++++++++++++++++++++++++++++++++++++
+ 4 files changed, 981 insertions(+)
  create mode 100644 drivers/media/i2c/ov2735.c
 
 diff --git a/drivers/media/i2c/Kconfig b/drivers/media/i2c/Kconfig
@@ -57,10 +57,10 @@ index 5873d29433ee..1adb27743fa1 100644
  obj-$(CONFIG_VIDEO_OV5640) += ov5640.o
 diff --git a/drivers/media/i2c/ov2735.c b/drivers/media/i2c/ov2735.c
 new file mode 100644
-index 000000000000..a7df516eaedc
+index 000000000000..9cfa34aa0966
 --- /dev/null
 +++ b/drivers/media/i2c/ov2735.c
-@@ -0,0 +1,907 @@
+@@ -0,0 +1,961 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * V4L2 Support for the OV2735
@@ -96,93 +96,97 @@ index 000000000000..a7df516eaedc
 +
 +#define OV2735_XCLK_FREQ			(24 * HZ_PER_MHZ)
 +
++/* Add page number in CCI private bits [31:28] of the register address */
++#define CCI_PAGE_REG8(x, p)			((p << CCI_REG_PRIVATE_SHIFT) | CCI_REG8(x))
++#define CCI_PAGE_REG16(x, p)			((p << CCI_REG_PRIVATE_SHIFT) | CCI_REG16(x))
++
 +#define OV2735_REG_PAGE_SELECT			CCI_REG8(0xfd)
 +
 +/* Page 0 */
-+#define OV2735_REG_CHIPID			CCI_REG16(0x02)
++#define OV2735_REG_CHIPID			CCI_PAGE_REG16(0x02, 0x00)
 +#define OV2735_CHIPID				0x2735
 +
-+#define OV2735_REG_SOFT_REST			CCI_REG8(0x20)
++#define OV2735_REG_SOFT_REST			CCI_PAGE_REG8(0x20, 0x00)
 +
 +/* Clock Settings */
-+#define OV2735_REG_PLL_CTRL			CCI_REG8(0x2f)
-+#define OV2735_REG_PLL_OUTDIV			CCI_REG8(0x34)
-+#define OV2735_REG_CLK_MODE			CCI_REG8(0x30)
-+#define OV2735_REG_CLOCK_REG1			CCI_REG8(0x33)
-+#define OV2735_REG_CLOCK_REG2			CCI_REG8(0x35)
++#define OV2735_REG_PLL_CTRL			CCI_PAGE_REG8(0x2f, 0x00)
++#define OV2735_REG_PLL_OUTDIV			CCI_PAGE_REG8(0x34, 0x00)
++#define OV2735_REG_CLK_MODE			CCI_PAGE_REG8(0x30, 0x00)
++#define OV2735_REG_CLOCK_REG1			CCI_PAGE_REG8(0x33, 0x00)
++#define OV2735_REG_CLOCK_REG2			CCI_PAGE_REG8(0x35, 0x00)
 +
 +/* Page 1 */
-+#define OV2735_REG_STREAM_CTRL			CCI_REG8(0xa0)
++#define OV2735_REG_STREAM_CTRL			CCI_PAGE_REG8(0xa0, 0x01)
 +#define OV2735_STREAM_ON			0x01
 +#define OV2735_STREAM_OFF			0x00
 +
-+#define OV2735_REG_UPDOWN_MIRROR		CCI_REG8(0x3f)
-+#define OV2735_REG_BINNING_DAC_CODE_MODE	CCI_REG8(0x30)
-+#define OV2735_REG_FRAME_LENGTH			CCI_REG16(0x0e)
++#define OV2735_REG_UPDOWN_MIRROR		CCI_PAGE_REG8(0x3f, 0x01)
++#define OV2735_REG_BINNING_DAC_CODE_MODE	CCI_PAGE_REG8(0x30, 0x01)
++#define OV2735_REG_FRAME_LENGTH			CCI_PAGE_REG16(0x0e, 0x01)
 +#define OV2735_VTS_MAX				0x0fff
-+#define OV2735_REG_FRAME_EXP_SEPERATE_EN	CCI_REG8(0x0d)
++#define OV2735_REG_FRAME_EXP_SEPERATE_EN	CCI_PAGE_REG8(0x0d, 0x01)
 +#define OV2735_FRAME_EXP_SEPERATE_EN		0x10
-+#define OV2735_REG_FRAME_SYNC			CCI_REG8(0x01)
++#define OV2735_REG_FRAME_SYNC			CCI_PAGE_REG8(0x01, 0x01)
 +
-+#define OV2735_REG_HBLANK			CCI_REG16(0x09)
++#define OV2735_REG_HBLANK			CCI_PAGE_REG16(0x09, 0x01)
 +
-+#define OV2735_REG_HS_MIPI			CCI_REG8(0xb1)
-+#define OV2735_REG_MIPI_CTRL1			CCI_REG8(0x92)
-+#define OV2735_REG_MIPI_CTRL2			CCI_REG8(0x94)
-+#define OV2735_REG_MIPI_CTRL3			CCI_REG8(0xa1)
-+#define OV2735_REG_MIPI_CTRL4			CCI_REG8(0xb2)
-+#define OV2735_REG_MIPI_CTRL5			CCI_REG8(0xb3)
-+#define OV2735_REG_MIPI_CTRL6			CCI_REG8(0xb4)
-+#define OV2735_REG_MIPI_CTRL7			CCI_REG8(0xb5)
-+#define OV2735_REG_PREPARE			CCI_REG8(0x95)
-+#define OV2735_REG_R_HS_ZERO			CCI_REG8(0x96)
-+#define OV2735_REG_TRAIL			CCI_REG8(0x98)
-+#define OV2735_REG_R_CLK_ZERO			CCI_REG8(0x9c)
-+#define OV2735_REG_MIPI_V_SIZE			CCI_REG16(0x8e)
-+#define OV2735_REG_MIPI_H_SIZE			CCI_REG16(0x90)
++#define OV2735_REG_HS_MIPI			CCI_PAGE_REG8(0xb1, 0x01)
++#define OV2735_REG_MIPI_CTRL1			CCI_PAGE_REG8(0x92, 0x01)
++#define OV2735_REG_MIPI_CTRL2			CCI_PAGE_REG8(0x94, 0x01)
++#define OV2735_REG_MIPI_CTRL3			CCI_PAGE_REG8(0xa1, 0x01)
++#define OV2735_REG_MIPI_CTRL4			CCI_PAGE_REG8(0xb2, 0x01)
++#define OV2735_REG_MIPI_CTRL5			CCI_PAGE_REG8(0xb3, 0x01)
++#define OV2735_REG_MIPI_CTRL6			CCI_PAGE_REG8(0xb4, 0x01)
++#define OV2735_REG_MIPI_CTRL7			CCI_PAGE_REG8(0xb5, 0x01)
++#define OV2735_REG_PREPARE			CCI_PAGE_REG8(0x95, 0x01)
++#define OV2735_REG_R_HS_ZERO			CCI_PAGE_REG8(0x96, 0x01)
++#define OV2735_REG_TRAIL			CCI_PAGE_REG8(0x98, 0x01)
++#define OV2735_REG_R_CLK_ZERO			CCI_PAGE_REG8(0x9c, 0x01)
++#define OV2735_REG_MIPI_V_SIZE			CCI_PAGE_REG16(0x8e, 0x01)
++#define OV2735_REG_MIPI_H_SIZE			CCI_PAGE_REG16(0x90, 0x01)
 +
-+#define OV2735_REG_ANALOG_CTRL3			CCI_REG8(0x25)
-+#define OV2735_REG_VNCP				CCI_REG8(0x20)
++#define OV2735_REG_ANALOG_CTRL3			CCI_PAGE_REG8(0x25, 0x01)
++#define OV2735_REG_VNCP				CCI_PAGE_REG8(0x20, 0x01)
 +
 +/* BLC registers */
-+#define OV2735_REG_BLC_GAIN_BLUE		CCI_REG8(0x86)
-+#define OV2735_REG_BLC_GAIN_RED			CCI_REG8(0x87)
-+#define OV2735_REG_BLC_GAIN_GR			CCI_REG8(0x88)
-+#define OV2735_REG_BLC_GAIN_GB			CCI_REG8(0x89)
-+#define OV2735_REG_GB_SUBOFFSET			CCI_REG8(0xf0)
-+#define OV2735_REG_BLUE_SUBOFFSET		CCI_REG8(0xf1)
-+#define OV2735_REG_RED_SUBOFFSET		CCI_REG8(0xf2)
-+#define OV2735_REG_GR_SUBOFFSET			CCI_REG8(0xf3)
-+#define OV2735_REG_BLC_BPC_TH_P			CCI_REG8(0xfc)
-+#define OV2735_REG_BLC_BPC_TH_N			CCI_REG8(0xfe)
++#define OV2735_REG_BLC_GAIN_BLUE		CCI_PAGE_REG8(0x86, 0x01)
++#define OV2735_REG_BLC_GAIN_RED			CCI_PAGE_REG8(0x87, 0x01)
++#define OV2735_REG_BLC_GAIN_GR			CCI_PAGE_REG8(0x88, 0x01)
++#define OV2735_REG_BLC_GAIN_GB			CCI_PAGE_REG8(0x89, 0x01)
++#define OV2735_REG_GB_SUBOFFSET			CCI_PAGE_REG8(0xf0, 0x01)
++#define OV2735_REG_BLUE_SUBOFFSET		CCI_PAGE_REG8(0xf1, 0x01)
++#define OV2735_REG_RED_SUBOFFSET		CCI_PAGE_REG8(0xf2, 0x01)
++#define OV2735_REG_GR_SUBOFFSET			CCI_PAGE_REG8(0xf3, 0x01)
++#define OV2735_REG_BLC_BPC_TH_P			CCI_PAGE_REG8(0xfc, 0x01)
++#define OV2735_REG_BLC_BPC_TH_N			CCI_PAGE_REG8(0xfe, 0x01)
 +
-+#define OV2735_REG_TEST_PATTERN			CCI_REG8(0xb2)
++#define OV2735_REG_TEST_PATTERN			CCI_PAGE_REG8(0xb2, 0x01)
 +#define OV2735_TEST_PATTERN_ENABLE		0x01
 +#define OV2735_TEST_PATTERN_DISABLE		0xfe
 +
-+#define OV2735_REG_LONG_EXPOSURE		CCI_REG16(0x03)
++#define OV2735_REG_LONG_EXPOSURE		CCI_PAGE_REG16(0x03, 0x01)
 +#define	OV2735_EXPOSURE_MIN			4
 +#define	OV2735_EXPOSURE_STEP			1
 +
-+#define OV2735_REG_ANALOG_GAIN                  CCI_REG8(0x24)
++#define OV2735_REG_ANALOG_GAIN                  CCI_PAGE_REG8(0x24, 0x01)
 +#define	OV2735_ANALOG_GAIN_MIN			0x10
 +#define	OV2735_ANALOG_GAIN_MAX			0xff
 +#define	OV2735_ANALOG_GAIN_STEP			1
 +#define	OV2735_ANALOG_GAIN_DEFAULT		0x10
 +
 +/* Page 2 */
-+#define OV2735_REG_V_START			CCI_REG16(0xa0)
-+#define OV2735_REG_V_SIZE			CCI_REG16(0xa2)
-+#define OV2735_REG_H_START			CCI_REG16(0xa4)
-+#define OV2735_REG_H_SIZE			CCI_REG16(0xa6)
++#define OV2735_REG_V_START			CCI_PAGE_REG16(0xa0, 0x02)
++#define OV2735_REG_V_SIZE			CCI_PAGE_REG16(0xa2, 0x02)
++#define OV2735_REG_H_START			CCI_PAGE_REG16(0xa4, 0x02)
++#define OV2735_REG_H_SIZE			CCI_PAGE_REG16(0xa6, 0x02)
 +
 +#define OV2735_LINK_FREQ_420MHZ			(420 * HZ_PER_MHZ)
 +#define OV2735_PIXEL_RATE			(168 * HZ_PER_MHZ)
 +
 +static const char * const ov2735_supply_name[] = {
-+	"AVDD",		/* Analog power */
-+	"DOVDD",	/* Digital I/O power */
-+	"DVDD",		/* Digital core power */
++	"avdd",		/* Analog power */
++	"dovdd",	/* Digital I/O power */
++	"dvdd",		/* Digital core power */
 +};
 +
 +struct ov2735 {
@@ -193,7 +197,7 @@ index 000000000000..a7df516eaedc
 +	struct i2c_client *client;
 +	struct clk *xclk;
 +	struct gpio_desc *reset_gpio;
-+	struct gpio_desc *pwdn_gpio;
++	struct gpio_desc *enable_gpio;
 +	struct regulator_bulk_data supplies[ARRAY_SIZE(ov2735_supply_name)];
 +
 +	/* V4L2 Controls */
@@ -205,6 +209,9 @@ index 000000000000..a7df516eaedc
 +	struct v4l2_ctrl *gain;
 +	struct v4l2_ctrl *exposure;
 +	struct v4l2_ctrl *test_pattern;
++
++	u8 current_page;
++	struct mutex page_lock;
 +};
 +
 +struct ov2735_reglist {
@@ -222,69 +229,65 @@ index 000000000000..a7df516eaedc
 +};
 +
 +static struct cci_reg_sequence ov2735_1920_1080_30fps[] = {
-+	{ OV2735_REG_PAGE_SELECT,		0x00 },
 +	{ OV2735_REG_PLL_CTRL,			0x10 },
 +	{ OV2735_REG_PLL_OUTDIV,		0x00 },
 +	{ OV2735_REG_CLK_MODE,			0x15 },
 +	{ OV2735_REG_CLOCK_REG1,		0x01 },
 +	{ OV2735_REG_CLOCK_REG2,		0x20 },
-+	{ OV2735_REG_PAGE_SELECT,		0x01 },
 +	{ OV2735_REG_BINNING_DAC_CODE_MODE,	0x00 },
-+	{ CCI_REG8(0xfb),			0x73 },
++	{ CCI_PAGE_REG8(0xfb, 0x01),		0x73 },
 +	{ OV2735_REG_FRAME_SYNC,		0x01 },
-+	{ OV2735_REG_PAGE_SELECT,		0x01 },
 +
 +	/* Timing ctrl */
-+	{ CCI_REG8(0x1a), 0x6b },
-+	{ CCI_REG8(0x1c), 0xea },
-+	{ CCI_REG8(0x16), 0x0c },
-+	{ CCI_REG8(0x21), 0x00 },
-+	{ CCI_REG8(0x11), 0x63 },
-+	{ CCI_REG8(0x19), 0xc3 },
++	{ CCI_PAGE_REG8(0x1a, 0x01),	0x6b },
++	{ CCI_PAGE_REG8(0x1c, 0x01),	0xea },
++	{ CCI_PAGE_REG8(0x16, 0x01),	0x0c },
++	{ CCI_PAGE_REG8(0x21, 0x01),	0x00 },
++	{ CCI_PAGE_REG8(0x11, 0x01),	0x63 },
++	{ CCI_PAGE_REG8(0x19, 0x01),	0xc3 },
 +
 +	/* Analog ctrl */
-+	{ CCI_REG8(0x26), 0x5a },
-+	{ CCI_REG8(0x29), 0x01 },
-+	{ CCI_REG8(0x33), 0x6f },
-+	{ CCI_REG8(0x2a), 0xd2 },
-+	{ CCI_REG8(0x2c), 0x40 },
-+	{ CCI_REG8(0xd0), 0x02 },
-+	{ CCI_REG8(0xd1), 0x01 },
-+	{ CCI_REG8(0xd2), 0x20 },
-+	{ CCI_REG8(0xd3), 0x04 },
-+	{ CCI_REG8(0xd4), 0x2a },
-+	{ CCI_REG8(0x50), 0x00 },
-+	{ CCI_REG8(0x51), 0x2c },
-+	{ CCI_REG8(0x52), 0x29 },
-+	{ CCI_REG8(0x53), 0x00 },
-+	{ CCI_REG8(0x55), 0x44 },
-+	{ CCI_REG8(0x58), 0x29 },
-+	{ CCI_REG8(0x5a), 0x00 },
-+	{ CCI_REG8(0x5b), 0x00 },
-+	{ CCI_REG8(0x5d), 0x00 },
-+	{ CCI_REG8(0x64), 0x2f },
-+	{ CCI_REG8(0x66), 0x62 },
-+	{ CCI_REG8(0x68), 0x5b },
-+	{ CCI_REG8(0x75), 0x46 },
-+	{ CCI_REG8(0x76), 0x36 },
-+	{ CCI_REG8(0x77), 0x4f },
-+	{ CCI_REG8(0x78), 0xef },
-+	{ CCI_REG8(0x72), 0xcf },
-+	{ CCI_REG8(0x73), 0x36 },
-+	{ CCI_REG8(0x7d), 0x0d },
-+	{ CCI_REG8(0x7e), 0x0d },
-+	{ CCI_REG8(0x8a), 0x77 },
-+	{ CCI_REG8(0x8b), 0x77 },
++	{ CCI_PAGE_REG8(0x26, 0x01),	0x5a },
++	{ CCI_PAGE_REG8(0x29, 0x01),	0x01 },
++	{ CCI_PAGE_REG8(0x33, 0x01),	0x6f },
++	{ CCI_PAGE_REG8(0x2a, 0x01),	0xd2 },
++	{ CCI_PAGE_REG8(0x2c, 0x01),	0x40 },
++	{ CCI_PAGE_REG8(0xd0, 0x01),	0x02 },
++	{ CCI_PAGE_REG8(0xd1, 0x01),	0x01 },
++	{ CCI_PAGE_REG8(0xd2, 0x01),	0x20 },
++	{ CCI_PAGE_REG8(0xd3, 0x01),	0x04 },
++	{ CCI_PAGE_REG8(0xd4, 0x01),	0x2a },
++	{ CCI_PAGE_REG8(0x50, 0x01),	0x00 },
++	{ CCI_PAGE_REG8(0x51, 0x01),	0x2c },
++	{ CCI_PAGE_REG8(0x52, 0x01),	0x29 },
++	{ CCI_PAGE_REG8(0x53, 0x01),	0x00 },
++	{ CCI_PAGE_REG8(0x55, 0x01),	0x44 },
++	{ CCI_PAGE_REG8(0x58, 0x01),	0x29 },
++	{ CCI_PAGE_REG8(0x5a, 0x01),	0x00 },
++	{ CCI_PAGE_REG8(0x5b, 0x01),	0x00 },
++	{ CCI_PAGE_REG8(0x5d, 0x01),	0x00 },
++	{ CCI_PAGE_REG8(0x64, 0x01),	0x2f },
++	{ CCI_PAGE_REG8(0x66, 0x01),	0x62 },
++	{ CCI_PAGE_REG8(0x68, 0x01),	0x5b },
++	{ CCI_PAGE_REG8(0x75, 0x01),	0x46 },
++	{ CCI_PAGE_REG8(0x76, 0x01),	0x36 },
++	{ CCI_PAGE_REG8(0x77, 0x01),	0x4f },
++	{ CCI_PAGE_REG8(0x78, 0x01),	0xef },
++	{ CCI_PAGE_REG8(0x72, 0x01),	0xcf },
++	{ CCI_PAGE_REG8(0x73, 0x01),	0x36 },
++	{ CCI_PAGE_REG8(0x7d, 0x01),	0x0d },
++	{ CCI_PAGE_REG8(0x7e, 0x01),	0x0d },
++	{ CCI_PAGE_REG8(0x8a, 0x01),	0x77 },
++	{ CCI_PAGE_REG8(0x8b, 0x01),	0x77 },
 +
-+	{ OV2735_REG_PAGE_SELECT,	0x01 },
 +	{ OV2735_REG_HS_MIPI,		0x83 },
 +	{ OV2735_REG_MIPI_CTRL5,	0x0b },
 +	{ OV2735_REG_MIPI_CTRL6,	0x14 },
-+	{ CCI_REG8(0x9d),		0x40 },
++	{ CCI_PAGE_REG8(0x9d, 0x01),	0x40 },
 +	{ OV2735_REG_MIPI_CTRL3,	0x05 },
 +	{ OV2735_REG_MIPI_CTRL2,	0x44 },
 +	{ OV2735_REG_PREPARE,		0x33 },
-+	{ OV2735_REG_R_HS_ZERO,	0x1f },
++	{ OV2735_REG_R_HS_ZERO,		0x1f },
 +	{ OV2735_REG_TRAIL,		0x45 },
 +	{ OV2735_REG_R_CLK_ZERO,	0x10 },
 +	{ OV2735_REG_MIPI_CTRL7,	0x70 },
@@ -292,7 +295,6 @@ index 000000000000..a7df516eaedc
 +	{ OV2735_REG_VNCP,		0x7b },
 +
 +	/* BLC */
-+	{ OV2735_REG_PAGE_SELECT,	0x01 },
 +	{ OV2735_REG_BLC_GAIN_BLUE,	0x77 },
 +	{ OV2735_REG_BLC_GAIN_GB,	0x77 },
 +	{ OV2735_REG_BLC_GAIN_RED,	0x74 },
@@ -305,12 +307,10 @@ index 000000000000..a7df516eaedc
 +	{ OV2735_REG_GR_SUBOFFSET,	0x40 },
 +
 +	/* 1920x1080 */
-+	{ OV2735_REG_PAGE_SELECT,	0x02 },
 +	{ OV2735_REG_V_START,		0x0008 },
 +	{ OV2735_REG_V_SIZE,		0x0438 },
 +	{ OV2735_REG_H_START,		0x0008 },
 +	{ OV2735_REG_H_SIZE,		0x03c0 },
-+	{ OV2735_REG_PAGE_SELECT,	0x01 },
 +	{ OV2735_REG_MIPI_V_SIZE,	0x0780 },
 +	{ OV2735_REG_MIPI_H_SIZE,	0x0438 },
 +};
@@ -338,9 +338,64 @@ index 000000000000..a7df516eaedc
 +	"Vertical Color",
 +};
 +
-+static const u32 ov2735_mbus_codes[] = {
-+	MEDIA_BUS_FMT_SGRBG10_1X10,
-+};
++static int ov2735_cci_access(struct ov2735 *ov2735,
++			     u32 reg, void *val, int *err, bool is_read)
++{
++	u8 page = (reg >> CCI_REG_PRIVATE_SHIFT) & 0xff;
++	u32 addr = reg & ~CCI_REG_PRIVATE_MASK;
++	int ret = 0;
++
++	if (err && *err)
++		return *err;
++
++	mutex_lock(&ov2735->page_lock);
++
++	/* Perform page access before read/write */
++	if (ov2735->current_page != page) {
++		ret = cci_write(ov2735->cci, OV2735_REG_PAGE_SELECT, page, &ret);
++		if (ret)
++			goto err_mutex_unlock;
++		ov2735->current_page = page;
++	}
++
++	if (is_read)
++		cci_read(ov2735->cci, addr, (u64 *)val, &ret);
++	else
++		cci_write(ov2735->cci, addr, *(u64 *)val, &ret);
++
++	if (!ret && err)
++		*err = ret;
++
++err_mutex_unlock:
++	mutex_unlock(&ov2735->page_lock);
++	return ret;
++}
++
++static int ov2735_cci_read(struct ov2735 *ov2735, u32 reg, u64 *val, int *err)
++{
++	return ov2735_cci_access(ov2735, reg, val, err, true);
++}
++
++static int ov2735_cci_write(struct ov2735 *ov2735, u32 reg, u64 val, int *err)
++{
++	return ov2735_cci_access(ov2735, reg, (void *)&val, err, false);
++}
++
++static int ov2735_cci_multi_reg_write(struct ov2735 *ov2735,
++				      const struct cci_reg_sequence *regs,
++				      unsigned int num_regs, int *err)
++{
++	unsigned int i;
++	int ret;
++
++	for (i = 0; i < num_regs; i++) {
++		ret = ov2735_cci_write(ov2735, regs[i].reg, regs[i].val, err);
++		if (ret)
++			return ret;
++	}
++
++	return 0;
++}
 +
 +static inline struct ov2735 *to_ov2735(struct v4l2_subdev *_sd)
 +{
@@ -352,7 +407,7 @@ index 000000000000..a7df516eaedc
 +	int ret = 0;
 +	u64 val;
 +
-+	cci_read(ov2735->cci, OV2735_REG_TEST_PATTERN, &val, &ret);
++	ov2735_cci_read(ov2735, OV2735_REG_TEST_PATTERN, &val, &ret);
 +	if (ret)
 +		return ret;
 +
@@ -365,7 +420,7 @@ index 000000000000..a7df516eaedc
 +		break;
 +	}
 +
-+	return cci_write(ov2735->cci, OV2735_REG_TEST_PATTERN, val, NULL);
++	return ov2735_cci_write(ov2735, OV2735_REG_TEST_PATTERN, val, NULL);
 +}
 +
 +static int ov2735_set_ctrl(struct v4l2_ctrl *ctrl)
@@ -392,8 +447,8 @@ index 000000000000..a7df516eaedc
 +
 +		ret = __v4l2_ctrl_modify_range(ov2735->exposure,
 +					       ov2735->exposure->minimum, max,
-+					 ov2735->exposure->step,
-+					 ov2735->exposure->default_value);
++					       ov2735->exposure->step,
++					       ov2735->exposure->default_value);
 +		if (ret)
 +			return ret;
 +	}
@@ -405,23 +460,21 @@ index 000000000000..a7df516eaedc
 +	if (pm_runtime_get_if_in_use(ov2735->dev) == 0)
 +		return 0;
 +
-+	cci_write(ov2735->cci, OV2735_REG_PAGE_SELECT, 0x01, &ret);
-+
 +	switch (ctrl->id) {
 +	case V4L2_CID_EXPOSURE:
-+		cci_write(ov2735->cci, OV2735_REG_LONG_EXPOSURE, ctrl->val, &ret);
++		ov2735_cci_write(ov2735, OV2735_REG_LONG_EXPOSURE, ctrl->val, &ret);
 +		break;
 +	case V4L2_CID_ANALOGUE_GAIN:
-+		cci_write(ov2735->cci, OV2735_REG_ANALOG_GAIN, ctrl->val, &ret);
++		ov2735_cci_write(ov2735, OV2735_REG_ANALOG_GAIN, ctrl->val, &ret);
 +		break;
 +	case V4L2_CID_HBLANK:
-+		cci_write(ov2735->cci, OV2735_REG_HBLANK, ctrl->val, &ret);
++		ov2735_cci_write(ov2735, OV2735_REG_HBLANK, ctrl->val, &ret);
 +		break;
 +	case V4L2_CID_VBLANK:
 +		vts = ctrl->val + mode->height;
-+		cci_write(ov2735->cci, OV2735_REG_FRAME_EXP_SEPERATE_EN,
-+				       OV2735_FRAME_EXP_SEPERATE_EN, &ret);
-+		cci_write(ov2735->cci, OV2735_REG_FRAME_LENGTH, vts, &ret);
++		ov2735_cci_write(ov2735, OV2735_REG_FRAME_EXP_SEPERATE_EN,
++				 OV2735_FRAME_EXP_SEPERATE_EN, &ret);
++		ov2735_cci_write(ov2735, OV2735_REG_FRAME_LENGTH, vts, &ret);
 +		break;
 +	case V4L2_CID_TEST_PATTERN:
 +		ret = ov2735_enable_test_pattern(ov2735, ctrl->val);
@@ -431,7 +484,7 @@ index 000000000000..a7df516eaedc
 +			ctrl->id, ctrl->val);
 +		break;
 +	}
-+	cci_write(ov2735->cci, OV2735_REG_FRAME_SYNC, 0x01, &ret);
++	ov2735_cci_write(ov2735, OV2735_REG_FRAME_SYNC, 0x01, &ret);
 +
 +	pm_runtime_put(ov2735->dev);
 +
@@ -451,7 +504,7 @@ index 000000000000..a7df516eaedc
 +	int ret;
 +
 +	ctrl_hdlr = &ov2735->handler;
-+	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 7);
++	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 9);
 +	if (ret)
 +		return ret;
 +
@@ -465,7 +518,7 @@ index 000000000000..a7df516eaedc
 +	if (ov2735->link_freq)
 +		ov2735->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 +
-+	hblank_def =  mode->hts_def - mode->width;
++	hblank_def = mode->hts_def - mode->width;
 +	ov2735->hblank = v4l2_ctrl_new_std(ctrl_hdlr, &ov2735_ctrl_ops, V4L2_CID_HBLANK,
 +					   hblank_def, hblank_def, 1, hblank_def);
 +
@@ -535,20 +588,19 @@ index 000000000000..a7df516eaedc
 +		return ret;
 +
 +	reg_list = &mode->reg_list;
-+	cci_multi_reg_write(ov2735->cci, reg_list->regvals, reg_list->num_regs, &ret);
++	ov2735_cci_multi_reg_write(ov2735, reg_list->regvals, reg_list->num_regs, &ret);
 +	if (ret) {
 +		dev_err(ov2735->dev, "%s failed to send mfg header\n", __func__);
 +		goto err_rpm_put;
 +	}
 +
 +	/* Apply customized values from user */
-+	ret =  __v4l2_ctrl_handler_setup(ov2735->sd.ctrl_handler);
++	ret = __v4l2_ctrl_handler_setup(ov2735->sd.ctrl_handler);
 +	if (ret)
 +		goto err_rpm_put;
 +
 +	/* set stream on register */
-+	cci_write(ov2735->cci, OV2735_REG_PAGE_SELECT, 0x01, &ret);
-+	cci_write(ov2735->cci, OV2735_REG_STREAM_CTRL, OV2735_STREAM_ON, &ret);
++	ov2735_cci_write(ov2735, OV2735_REG_STREAM_CTRL, OV2735_STREAM_ON, &ret);
 +	if (ret)
 +		goto err_rpm_put;
 +
@@ -567,8 +619,7 @@ index 000000000000..a7df516eaedc
 +	int ret = 0;
 +
 +	/* set stream off register */
-+	cci_write(ov2735->cci, OV2735_REG_PAGE_SELECT, 0x01, &ret);
-+	cci_write(ov2735->cci, OV2735_REG_STREAM_CTRL, OV2735_STREAM_OFF, &ret);
++	ov2735_cci_write(ov2735, OV2735_REG_STREAM_CTRL, OV2735_STREAM_OFF, &ret);
 +	if (ret)
 +		dev_err(ov2735->dev, "%s failed to set stream\n", __func__);
 +
@@ -581,17 +632,17 @@ index 000000000000..a7df516eaedc
 +				 struct v4l2_subdev_state *sd_state,
 +				 struct v4l2_subdev_mbus_code_enum *code)
 +{
-+	if (code->index >= ARRAY_SIZE(ov2735_mbus_codes))
++	if (code->index >= 0)
 +		return -EINVAL;
 +
-+	code->code = ov2735_mbus_codes[code->index];
++	code->code = MEDIA_BUS_FMT_SGRBG10_1X10;
 +
 +	return 0;
 +}
 +
 +static int ov2735_enum_frame_size(struct v4l2_subdev *sd,
 +				  struct v4l2_subdev_state *sd_state,
-+				   struct v4l2_subdev_frame_size_enum *fse)
++				  struct v4l2_subdev_frame_size_enum *fse)
 +{
 +	u32 code;
 +
@@ -635,8 +686,8 @@ index 000000000000..a7df516eaedc
 +
 +	mode = v4l2_find_nearest_size(supported_modes,
 +				      ARRAY_SIZE(supported_modes),
-+			      width, height,
-+			      fmt->format.width, fmt->format.height);
++				      width, height,
++				      fmt->format.width, fmt->format.height);
 +
 +	fmt->format.width = mode->width;
 +	fmt->format.height = mode->height;
@@ -702,7 +753,7 @@ index 000000000000..a7df516eaedc
 +	unsigned long delay_us;
 +	int ret;
 +
-+	gpiod_set_value_cansleep(ov2735->pwdn_gpio, 0);
++	gpiod_set_value_cansleep(ov2735->enable_gpio, 0);
 +	fsleep(3000);
 +
 +	ret = regulator_bulk_enable(ARRAY_SIZE(ov2735_supply_name),
@@ -712,7 +763,7 @@ index 000000000000..a7df516eaedc
 +		return ret;
 +	}
 +
-+	gpiod_set_value_cansleep(ov2735->pwdn_gpio, 1);
++	gpiod_set_value_cansleep(ov2735->enable_gpio, 1);
 +	fsleep(3000);
 +
 +	gpiod_set_value_cansleep(ov2735->reset_gpio, 0);
@@ -740,7 +791,7 @@ index 000000000000..a7df516eaedc
 +	struct v4l2_subdev *sd = dev_get_drvdata(dev);
 +	struct ov2735 *ov2735 = to_ov2735(sd);
 +
-+	gpiod_set_value_cansleep(ov2735->pwdn_gpio, 1);
++	gpiod_set_value_cansleep(ov2735->enable_gpio, 1);
 +	clk_disable_unprepare(ov2735->xclk);
 +	gpiod_set_value_cansleep(ov2735->reset_gpio, 0);
 +	regulator_bulk_disable(ARRAY_SIZE(ov2735_supply_name), ov2735->supplies);
@@ -765,8 +816,7 @@ index 000000000000..a7df516eaedc
 +	u64 chip_id;
 +	int ret = 0;
 +
-+	cci_write(ov2735->cci, OV2735_REG_PAGE_SELECT, 0x00, &ret);
-+	cci_read(ov2735->cci, OV2735_REG_CHIPID, &chip_id, &ret);
++	ov2735_cci_read(ov2735, OV2735_REG_CHIPID, &chip_id, &ret);
 +	if (ret)
 +		return dev_err_probe(ov2735->dev, ret, "failed to read chip id %x\n",
 +				     OV2735_CHIPID);
@@ -834,6 +884,10 @@ index 000000000000..a7df516eaedc
 +		return dev_err_probe(ov2735->dev, ret, "failed to initialize CCI\n");
 +	}
 +
++	/* Set Current page to 0 */
++	ov2735->current_page = 0;
++	mutex_init(&ov2735->page_lock);
++
 +	/* Get system clock (xvclk) */
 +	ov2735->xclk = devm_v4l2_sensor_clk_get(ov2735->dev, NULL);
 +	if (IS_ERR(ov2735->xclk)) {
@@ -862,10 +916,10 @@ index 000000000000..a7df516eaedc
 +		return dev_err_probe(ov2735->dev, PTR_ERR(ov2735->reset_gpio),
 +				     "failed to get reset GPIO\n");
 +
-+	ov2735->pwdn_gpio = devm_gpiod_get(&client->dev, "pwdn", GPIOD_OUT_LOW);
-+	if (IS_ERR(ov2735->pwdn_gpio))
-+		return dev_err_probe(ov2735->dev, PTR_ERR(ov2735->pwdn_gpio),
-+				     "failed to get reset GPIO\n");
++	ov2735->enable_gpio = devm_gpiod_get(&client->dev, "enable", GPIOD_OUT_LOW);
++	if (IS_ERR(ov2735->enable_gpio))
++		return dev_err_probe(ov2735->dev, PTR_ERR(ov2735->enable_gpio),
++				     "failed to get enable GPIO\n");
 +
 +	ret = ov2735_power_on(ov2735->dev);
 +	if (ret)
