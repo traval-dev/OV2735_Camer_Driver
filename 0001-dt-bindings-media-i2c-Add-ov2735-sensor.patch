@@ -1,22 +1,22 @@
-From 12b67d0bc4049e3f45fe7dc997ba5cebbe5d5941 Mon Sep 17 00:00:00 2001
+From 4e4e52de69e8b8d55cea205fa3d93613d5437eea Mon Sep 17 00:00:00 2001
 From: Tarang Raval <tarang.raval@siliconsignals.io>
-Date: Tue, 8 Jul 2025 15:03:42 +0530
-Subject: [PATCH 1/2] dt-bindings: media: i2c: Add ov2735 sensor
+Date: Thu, 10 Jul 2025 17:15:35 +0530
+Subject: [PATCH v3 1/2] dt-bindings: media: i2c: Add ov2735 sensor
 
 Add bindings for Omnivision OV2735 sensor.
 
 Signed-off-by: Tarang Raval <tarang.raval@siliconsignals.io>
 ---
- .../bindings/media/i2c/ovti,ov2735.yaml       | 104 ++++++++++++++++++
- 1 file changed, 104 insertions(+)
+ .../bindings/media/i2c/ovti,ov2735.yaml       | 115 ++++++++++++++++++
+ 1 file changed, 115 insertions(+)
  create mode 100644 Documentation/devicetree/bindings/media/i2c/ovti,ov2735.yaml
 
 diff --git a/Documentation/devicetree/bindings/media/i2c/ovti,ov2735.yaml b/Documentation/devicetree/bindings/media/i2c/ovti,ov2735.yaml
 new file mode 100644
-index 000000000000..a6be7886f4d6
+index 000000000000..d9d01db88844
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/media/i2c/ovti,ov2735.yaml
-@@ -0,0 +1,104 @@
+@@ -0,0 +1,115 @@
 +# SPDX-License-Identifier: (GPL-2.0 OR BSD-2-Clause)
 +%YAML 1.2
 +---
@@ -61,9 +61,13 @@ index 000000000000..a6be7886f4d6
 +    maxItems: 1
 +    description: Reset Pin GPIO Control (active low)
 +
-+  poweron-gpios:
++  enable-gpios:
 +    maxItems: 1
-+    description: Poweron Pin GPIO Control (active low)
++    description: |
++      Active-low enable pin. Labeled as 'PWDN' in the datasheet, but acts as
++      an enable signal. During power rail ramp-up, the device remains powered
++      down. Once power rails are stable, pulling this pin low powers on the
++      device.
 +
 +  port:
 +    description: MIPI CSI-2 transmitter port
@@ -88,6 +92,9 @@ index 000000000000..a6be7886f4d6
 +  - compatible
 +  - reg
 +  - clocks
++  - avdd-supply
++  - dovdd-supply
++  - dvdd-supply
 +  - port
 +
 +additionalProperties: false
@@ -110,8 +117,12 @@ index 000000000000..a6be7886f4d6
 +            assigned-clock-parents = <&ov2735_clk_parent>;
 +            assigned-clock-rates = <24000000>;
 +
++            avdd-supply = <&ov2735_avdd>;
++            dovdd-supply = <&ov2735_dovdd>;
++            dvdd-supply = <&ov2735_dvdd>;
++
 +            reset-gpios = <&gpio1 6 GPIO_ACTIVE_LOW>;
-+            pwdn-gpios = <&gpio2 11 GPIO_ACTIVE_LOW>;
++            enable-gpios = <&gpio2 11 GPIO_ACTIVE_LOW>;
 +
 +            port {
 +                cam_out: endpoint {
@@ -123,4 +134,3 @@ index 000000000000..a6be7886f4d6
 +    };
 -- 
 2.34.1
-
