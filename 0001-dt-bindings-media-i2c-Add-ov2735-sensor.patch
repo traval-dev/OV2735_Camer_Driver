@@ -7,8 +7,8 @@ Add bindings for Omnivision OV2735 sensor.
 
 Signed-off-by: Tarang Raval <tarang.raval@siliconsignals.io>
 ---
- .../bindings/media/i2c/ovti,ov2735.yaml       | 115 ++++++++++++++++++
- 1 file changed, 115 insertions(+)
+ .../bindings/media/i2c/ovti,ov2735.yaml       | 116 ++++++++++++++++++
+ 1 file changed, 116 insertions(+)
  create mode 100644 Documentation/devicetree/bindings/media/i2c/ovti,ov2735.yaml
 
 diff --git a/Documentation/devicetree/bindings/media/i2c/ovti,ov2735.yaml b/Documentation/devicetree/bindings/media/i2c/ovti,ov2735.yaml
@@ -87,6 +87,7 @@ index 000000000000..d9d01db88844
 +
 +        required:
 +          - data-lanes
++          - link-frequencies
 +
 +required:
 +  - compatible
