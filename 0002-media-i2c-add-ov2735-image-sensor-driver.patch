@@ -760,7 +760,7 @@ index 000000000000..da5978b96146
 +				 struct v4l2_subdev_state *sd_state,
 +				 struct v4l2_subdev_mbus_code_enum *code)
 +{
-+	if (code->index >= 0)
++	if (code->index > 0)
 +		return -EINVAL;
 +
 +	code->code = MEDIA_BUS_FMT_SGRBG10_1X10;
